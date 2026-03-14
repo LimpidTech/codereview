@@ -63,6 +63,9 @@ func (c *Client) fetchAllPRComments(ctx context.Context, owner, repo string, prN
 
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("reading response: %w", err)
+		}
 
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
