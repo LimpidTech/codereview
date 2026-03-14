@@ -7,9 +7,12 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/monokrome/codereview/internal/review"
 )
+
+const httpTimeout = 30 * time.Second
 
 const apiBase = "https://api.github.com"
 
@@ -21,7 +24,7 @@ type Client struct {
 func New(token string) *Client {
 	return &Client{
 		token:      token,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: httpTimeout},
 	}
 }
 
@@ -60,6 +63,9 @@ func (c *Client) fetchAllPRComments(ctx context.Context, owner, repo string, prN
 
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("reading response: %w", err)
+		}
 
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
