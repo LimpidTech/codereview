@@ -13,9 +13,10 @@ import (
 )
 
 type Config struct {
-	Diff         string
-	Provider     provider.ReviewFunc
-	Instructions string
+	Diff           string
+	Provider       provider.ReviewFunc
+	Instructions   string
+	PriorComments  []prompt.PriorComment
 }
 
 func Run(ctx context.Context, cfg Config) (Result, error) {
@@ -24,7 +25,7 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 		return Result{}, fmt.Errorf("parsing diff: %w", err)
 	}
 
-	system, user := prompt.Build(files, cfg.Instructions)
+	system, user := prompt.Build(files, cfg.Instructions, cfg.PriorComments)
 
 	resp, err := cfg.Provider(ctx, provider.Request{
 		SystemPrompt: system,

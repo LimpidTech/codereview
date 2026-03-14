@@ -30,6 +30,7 @@ type Config struct {
 	GeminiAPIKey string
 	Model        string
 	Instructions string
+	BotLogin     string
 	Owner        string
 	Repo         string
 	PRNumber     int
@@ -73,6 +74,7 @@ func Parse() (Config, error) {
 		GeminiAPIKey: os.Getenv("INPUT_GEMINI_API_KEY"),
 		Model:        os.Getenv("INPUT_MODEL"),
 		Instructions: os.Getenv("INPUT_INSTRUCTIONS"),
+		BotLogin:     os.Getenv("INPUT_BOT_LOGIN"),
 	}
 
 	if cfg.GitHubToken == "" {
@@ -121,12 +123,12 @@ func Parse() (Config, error) {
 			cfg.CommitSHA = event.Comment.CommitID
 		}
 
-		botLogin := os.Getenv("INPUT_BOT_LOGIN")
-		if botLogin == "" {
-			botLogin = defaultBotLogin
+		botCheck := cfg.BotLogin
+		if botCheck == "" {
+			botCheck = defaultBotLogin
 		}
 
-		if cfg.Comment.UserLogin == botLogin {
+		if cfg.Comment.UserLogin == botCheck {
 			cfg.SkipReply = true
 		}
 

@@ -55,11 +55,24 @@ Rules:
 - Be collaborative, not adversarial
 - Output plain text only, no JSON, no markdown fences`
 
-func Build(files []diff.File, instructions string) (string, string) {
+type PriorComment struct {
+	Path string
+	Body string
+}
+
+func Build(files []diff.File, instructions string, priorComments []PriorComment) (string, string) {
 	var user strings.Builder
 
 	if instructions != "" {
 		fmt.Fprintf(&user, "Additional review instructions:\n%s\n\n", instructions)
+	}
+
+	if len(priorComments) > 0 {
+		user.WriteString("You have already made the following review comments on this PR. Do NOT repeat these. Only raise new issues or comment on changes that address (or fail to address) your prior feedback:\n\n")
+		for _, pc := range priorComments {
+			fmt.Fprintf(&user, "- [%s] %s\n", pc.Path, pc.Body)
+		}
+		user.WriteString("\n")
 	}
 
 	user.WriteString("Review the following diff:\n\n")

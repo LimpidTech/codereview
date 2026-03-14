@@ -13,6 +13,8 @@ import (
 	"github.com/monokrome/codereview/internal/review"
 )
 
+const defaultBotLogin = "github-actions[bot]"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -57,10 +59,29 @@ func runReview(ctx context.Context, cfg action.Config, providerFn provider.Revie
 		return fmt.Errorf("fetching diff: %w", err)
 	}
 
+	botLogin := cfg.BotLogin
+	if botLogin == "" {
+		botLogin = defaultBotLogin
+	}
+
+	priorGH, err := gh.FetchBotReviewComments(ctx, cfg.Owner, cfg.Repo, cfg.PRNumber, botLogin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not fetch prior comments: %v\n", err)
+	}
+
+	var priorComments []prompt.PriorComment
+	for _, pc := range priorGH {
+		priorComments = append(priorComments, prompt.PriorComment{
+			Path: pc.Path,
+			Body: pc.Body,
+		})
+	}
+
 	result, err := review.Run(ctx, review.Config{
-		Diff:         diffText,
-		Provider:     providerFn,
-		Instructions: cfg.Instructions,
+		Diff:          diffText,
+		Provider:      providerFn,
+		Instructions:  cfg.Instructions,
+		PriorComments: priorComments,
 	})
 	if err != nil {
 		return fmt.Errorf("running review: %w", err)
