@@ -1,0 +1,77 @@
+package prompt
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/monokrome/codereview/internal/diff"
+)
+
+const systemTemplate = `You are a senior code reviewer. Review the provided unified diff and produce a JSON response.
+
+Use these conventional comment labels:
+- "nit": style or trivial improvements that don't affect correctness
+- "suggestion": a better approach or alternative worth considering
+- "issue": a bug, logic error, or correctness problem that must be fixed
+- "question": something unclear that needs the author's explanation
+- "thought": an observation or design consideration, not actionable
+- "chore": maintenance tasks like updating dependencies, fixing typos, or cleanup
+- "praise": something done well that deserves recognition
+
+Verdict rules:
+- Use "APPROVE" when there are no issues or only nits/praise/thoughts
+- Use "REQUEST_CHANGES" when there are any comments with the "issue" label
+- Use "COMMENT" for everything else (suggestions, questions, chores without issues)
+
+Your response must be valid JSON matching this exact structure:
+{
+  "verdict": "APPROVE" | "REQUEST_CHANGES" | "COMMENT",
+  "summary": "brief overall summary of the review",
+  "comments": [
+    {
+      "path": "file/path.go",
+      "line": 42,
+      "label": "issue",
+      "body": "issue: description of the problem"
+    }
+  ]
+}
+
+Rules:
+- The "line" field must reference a valid line number from the diff (a line that was added or exists as context in the new file)
+- The "body" field must start with the label followed by a colon and space (e.g. "nit: unused import")
+- The "path" field must match a file path from the diff exactly
+- Only comment on meaningful changes; do not comment on every line
+- Be concise and actionable
+- Output ONLY the JSON object, no markdown fences, no extra text`
+
+func Build(files []diff.File, instructions string) (string, string) {
+	var user strings.Builder
+
+	if instructions != "" {
+		fmt.Fprintf(&user, "Additional review instructions:\n%s\n\n", instructions)
+	}
+
+	user.WriteString("Review the following diff:\n\n")
+
+	for _, f := range files {
+		fmt.Fprintf(&user, "--- a/%s\n+++ b/%s\n", f.Path, f.Path)
+
+		for _, h := range f.Hunks {
+			fmt.Fprintf(&user, "@@ -%d +%d @@\n", h.StartLine, h.StartLine)
+
+			for _, l := range h.Lines {
+				switch l.Kind {
+				case diff.KindAdded:
+					fmt.Fprintf(&user, "+%s\n", l.Content)
+				case diff.KindRemoved:
+					fmt.Fprintf(&user, "-%s\n", l.Content)
+				default:
+					fmt.Fprintf(&user, " %s\n", l.Content)
+				}
+			}
+		}
+	}
+
+	return systemTemplate, user.String()
+}

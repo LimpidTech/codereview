@@ -1,0 +1,44 @@
+name: 'Code Review'
+description: 'LLM-powered PR code review with conventional comments'
+
+inputs:
+  github-token:
+    description: 'GitHub token for API access'
+    required: true
+    default: '${{ github.token }}'
+  provider:
+    description: 'LLM provider'
+    required: false
+    default: 'gemini'
+  gemini-api-key:
+    description: 'API key for Google Gemini'
+    required: false
+  model:
+    description: 'Model name override'
+    required: false
+  instructions:
+    description: 'Additional review instructions'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache-dependency-path: ${{ github.action_path }}/go.sum
+
+    - name: Build
+      shell: bash
+      run: cd ${{ github.action_path }} && go build -o $RUNNER_TEMP/codereview ./cmd/codereview
+
+    - name: Review
+      shell: bash
+      env:
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_PROVIDER: ${{ inputs.provider }}
+        INPUT_GEMINI_API_KEY: ${{ inputs.gemini-api-key }}
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_INSTRUCTIONS: ${{ inputs.instructions }}
+      run: $RUNNER_TEMP/codereview
