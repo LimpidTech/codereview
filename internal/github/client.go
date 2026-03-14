@@ -111,6 +111,46 @@ func (c *Client) FetchDiff(ctx context.Context, owner, repo string, prNumber int
 	return string(data), nil
 }
 
+const maxFileSize = 256 * 1024 // 256KB
+
+func (c *Client) FetchFile(ctx context.Context, owner, repo, ref, path string) (string, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s", apiBase, owner, repo, path, ref)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/vnd.github.v3.raw")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetching file: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxFileSize+1))
+	if err != nil {
+		return "", fmt.Errorf("reading file: %w", err)
+	}
+
+	if len(data) > maxFileSize {
+		return "", nil
+	}
+
+	return string(data), nil
+}
+
 type submitComment struct {
 	Path string `json:"path"`
 	Line int    `json:"line"`

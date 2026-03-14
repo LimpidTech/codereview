@@ -60,7 +60,7 @@ type PriorComment struct {
 	Body string
 }
 
-func Build(files []diff.File, instructions string, priorComments []PriorComment) (string, string) {
+func Build(files []diff.File, instructions string, priorComments []PriorComment, fileContents map[string]string) (string, string) {
 	var user strings.Builder
 
 	if instructions != "" {
@@ -73,6 +73,13 @@ func Build(files []diff.File, instructions string, priorComments []PriorComment)
 			fmt.Fprintf(&user, "- [%s] %s\n", pc.Path, pc.Body)
 		}
 		user.WriteString("\n")
+	}
+
+	if len(fileContents) > 0 {
+		user.WriteString("Full file contents for context (use these to understand the surrounding code):\n\n")
+		for path, content := range fileContents {
+			fmt.Fprintf(&user, "=== %s ===\n%s\n\n", path, content)
+		}
 	}
 
 	user.WriteString("Review the following diff:\n\n")

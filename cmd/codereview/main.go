@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/monokrome/codereview/internal/action"
+	"github.com/monokrome/codereview/internal/diff"
 	"github.com/monokrome/codereview/internal/github"
 	"github.com/monokrome/codereview/internal/prompt"
 	"github.com/monokrome/codereview/internal/provider"
@@ -77,11 +78,14 @@ func runReview(ctx context.Context, cfg action.Config, providerFn provider.Revie
 		})
 	}
 
+	fileContents := fetchChangedFiles(ctx, gh, cfg, diffText)
+
 	result, err := review.Run(ctx, review.Config{
 		Diff:          diffText,
 		Provider:      providerFn,
 		Instructions:  cfg.Instructions,
 		PriorComments: priorComments,
+		FileContents:  fileContents,
 	})
 	if err != nil {
 		return fmt.Errorf("running review: %w", err)
@@ -135,4 +139,29 @@ func runReply(ctx context.Context, cfg action.Config, providerFn provider.Review
 
 	fmt.Fprintf(os.Stderr, "reply posted\n")
 	return nil
+}
+
+func fetchChangedFiles(ctx context.Context, gh *github.Client, cfg action.Config, diffText string) map[string]string {
+	files, err := diff.Parse(diffText)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not parse diff for file fetching: %v\n", err)
+		return nil
+	}
+
+	contents := make(map[string]string)
+	for _, f := range files {
+		content, err := gh.FetchFile(ctx, cfg.Owner, cfg.Repo, cfg.CommitSHA, f.Path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not fetch %s: %v\n", f.Path, err)
+			continue
+		}
+
+		if content == "" {
+			continue
+		}
+
+		contents[f.Path] = content
+	}
+
+	return contents
 }
