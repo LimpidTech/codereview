@@ -19,6 +19,9 @@ inputs:
   instructions:
     description: 'Additional review instructions'
     required: false
+  bot-login:
+    description: 'Bot username to ignore for loop prevention with custom tokens'
+    required: false
 
 runs:
   using: 'composite'
@@ -41,4 +44,5 @@ runs:
         INPUT_GEMINI_API_KEY: ${{ inputs.gemini-api-key }}
         INPUT_MODEL: ${{ inputs.model }}
         INPUT_INSTRUCTIONS: ${{ inputs.instructions }}
+        INPUT_BOT_LOGIN: ${{ inputs.bot-login }}
       run: $RUNNER_TEMP/codereview

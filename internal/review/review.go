@@ -44,6 +44,27 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 	return result, nil
 }
 
+type ReplyConfig struct {
+	Provider     provider.ReviewFunc
+	Thread       []prompt.ThreadMessage
+	DiffHunk     string
+	Instructions string
+}
+
+func RunReply(ctx context.Context, cfg ReplyConfig) (string, error) {
+	system, user := prompt.BuildReply(cfg.Thread, cfg.DiffHunk, cfg.Instructions)
+
+	resp, err := cfg.Provider(ctx, provider.Request{
+		SystemPrompt: system,
+		UserPrompt:   user,
+	})
+	if err != nil {
+		return "", fmt.Errorf("calling provider: %w", err)
+	}
+
+	return strings.TrimSpace(stripMarkdownFences(resp.Content)), nil
+}
+
 func ParseResponse(raw string) (Result, error) {
 	cleaned := stripMarkdownFences(raw)
 	cleaned = strings.TrimSpace(cleaned)

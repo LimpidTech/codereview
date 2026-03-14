@@ -45,6 +45,16 @@ Rules:
 - Be concise and actionable
 - Output ONLY the JSON object, no markdown fences, no extra text`
 
+const replySystemTemplate = `You are a senior code reviewer engaged in a conversation about a code review comment. You are replying to a developer who responded to one of your review comments.
+
+Rules:
+- Be concise and directly address the question or comment
+- Reference the code when relevant
+- If the developer's response resolves your concern, acknowledge it
+- If you still have concerns, explain why clearly
+- Be collaborative, not adversarial
+- Output plain text only, no JSON, no markdown fences`
+
 func Build(files []diff.File, instructions string) (string, string) {
 	var user strings.Builder
 
@@ -74,4 +84,28 @@ func Build(files []diff.File, instructions string) (string, string) {
 	}
 
 	return systemTemplate, user.String()
+}
+
+type ThreadMessage struct {
+	Author string
+	Body   string
+}
+
+func BuildReply(thread []ThreadMessage, diffHunk string, instructions string) (string, string) {
+	var user strings.Builder
+
+	if instructions != "" {
+		fmt.Fprintf(&user, "Additional context:\n%s\n\n", instructions)
+	}
+
+	fmt.Fprintf(&user, "Relevant code:\n```\n%s\n```\n\n", diffHunk)
+
+	user.WriteString("Conversation thread:\n\n")
+	for _, msg := range thread {
+		fmt.Fprintf(&user, "**%s:**\n%s\n\n", msg.Author, msg.Body)
+	}
+
+	user.WriteString("Write your reply to the latest message.")
+
+	return replySystemTemplate, user.String()
 }

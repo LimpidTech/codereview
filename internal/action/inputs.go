@@ -7,6 +7,23 @@ import (
 	"strconv"
 )
 
+const (
+	ModeReview = "review"
+	ModeReply  = "reply"
+
+	defaultBotLogin = "github-actions[bot]"
+)
+
+type CommentContext struct {
+	CommentID   int64
+	InReplyToID int64
+	Body        string
+	UserLogin   string
+	Path        string
+	Line        int
+	DiffHunk    string
+}
+
 type Config struct {
 	GitHubToken  string
 	Provider     string
@@ -17,6 +34,9 @@ type Config struct {
 	Repo         string
 	PRNumber     int
 	CommitSHA    string
+	Mode         string
+	Comment      *CommentContext
+	SkipReply    bool
 }
 
 type githubEvent struct {
@@ -32,6 +52,18 @@ type githubEvent struct {
 		} `json:"owner"`
 		Name string `json:"name"`
 	} `json:"repository"`
+	Comment struct {
+		ID          int64  `json:"id"`
+		InReplyToID int64  `json:"in_reply_to_id"`
+		Body        string `json:"body"`
+		Path        string `json:"path"`
+		Line        int    `json:"line"`
+		DiffHunk    string `json:"diff_hunk"`
+		CommitID    string `json:"commit_id"`
+		User        struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	} `json:"comment"`
 }
 
 func Parse() (Config, error) {
@@ -70,6 +102,40 @@ func Parse() (Config, error) {
 	cfg.Repo = event.Repository.Name
 	cfg.PRNumber = event.PullRequest.Number
 	cfg.CommitSHA = event.PullRequest.Head.SHA
+
+	eventName := os.Getenv("GITHUB_EVENT_NAME")
+	switch eventName {
+	case "pull_request_review_comment":
+		cfg.Mode = ModeReply
+		cfg.Comment = &CommentContext{
+			CommentID:   event.Comment.ID,
+			InReplyToID: event.Comment.InReplyToID,
+			Body:        event.Comment.Body,
+			UserLogin:   event.Comment.User.Login,
+			Path:        event.Comment.Path,
+			Line:        event.Comment.Line,
+			DiffHunk:    event.Comment.DiffHunk,
+		}
+
+		if event.Comment.CommitID != "" {
+			cfg.CommitSHA = event.Comment.CommitID
+		}
+
+		botLogin := os.Getenv("INPUT_BOT_LOGIN")
+		if botLogin == "" {
+			botLogin = defaultBotLogin
+		}
+
+		if cfg.Comment.UserLogin == botLogin {
+			cfg.SkipReply = true
+		}
+
+		if cfg.Comment.InReplyToID == 0 {
+			cfg.SkipReply = true
+		}
+	default:
+		cfg.Mode = ModeReview
+	}
 
 	if override := os.Getenv("INPUT_PR_NUMBER"); override != "" {
 		n, err := strconv.Atoi(override)

@@ -7,6 +7,8 @@ import (
 
 	"github.com/monokrome/codereview/internal/action"
 	"github.com/monokrome/codereview/internal/github"
+	"github.com/monokrome/codereview/internal/prompt"
+	"github.com/monokrome/codereview/internal/provider"
 	"github.com/monokrome/codereview/internal/provider/gemini"
 	"github.com/monokrome/codereview/internal/review"
 )
@@ -26,28 +28,40 @@ func run() error {
 		return fmt.Errorf("parsing inputs: %w", err)
 	}
 
-	var reviewFn review.Config
+	var providerFn provider.ReviewFunc
 	switch cfg.Provider {
 	case "gemini":
 		if cfg.GeminiAPIKey == "" {
 			return fmt.Errorf("INPUT_GEMINI_API_KEY is required for gemini provider")
 		}
-		reviewFn.Provider = gemini.New(cfg.GeminiAPIKey, cfg.Model)
+		providerFn = gemini.New(cfg.GeminiAPIKey, cfg.Model)
 	default:
 		return fmt.Errorf("unsupported provider: %s", cfg.Provider)
 	}
 
 	gh := github.New(cfg.GitHubToken)
 
+	switch cfg.Mode {
+	case action.ModeReview:
+		return runReview(ctx, cfg, providerFn, gh)
+	case action.ModeReply:
+		return runReply(ctx, cfg, providerFn, gh)
+	default:
+		return fmt.Errorf("unknown mode: %s", cfg.Mode)
+	}
+}
+
+func runReview(ctx context.Context, cfg action.Config, providerFn provider.ReviewFunc, gh *github.Client) error {
 	diffText, err := gh.FetchDiff(ctx, cfg.Owner, cfg.Repo, cfg.PRNumber)
 	if err != nil {
 		return fmt.Errorf("fetching diff: %w", err)
 	}
 
-	reviewFn.Diff = diffText
-	reviewFn.Instructions = cfg.Instructions
-
-	result, err := review.Run(ctx, reviewFn)
+	result, err := review.Run(ctx, review.Config{
+		Diff:         diffText,
+		Provider:     providerFn,
+		Instructions: cfg.Instructions,
+	})
 	if err != nil {
 		return fmt.Errorf("running review: %w", err)
 	}
@@ -57,5 +71,47 @@ func run() error {
 	}
 
 	fmt.Fprintf(os.Stderr, "review submitted: %s\n", result.Verdict)
+	return nil
+}
+
+func runReply(ctx context.Context, cfg action.Config, providerFn provider.ReviewFunc, gh *github.Client) error {
+	if cfg.SkipReply {
+		fmt.Fprintf(os.Stderr, "skipping: comment is from bot or is a top-level comment\n")
+		return nil
+	}
+
+	thread, err := gh.FetchCommentThread(ctx, cfg.Owner, cfg.Repo, cfg.PRNumber, cfg.Comment.CommentID)
+	if err != nil {
+		return fmt.Errorf("fetching comment thread: %w", err)
+	}
+
+	var messages []prompt.ThreadMessage
+	for _, tc := range thread {
+		messages = append(messages, prompt.ThreadMessage{
+			Author: tc.UserLogin,
+			Body:   tc.Body,
+		})
+	}
+
+	replyText, err := review.RunReply(ctx, review.ReplyConfig{
+		Provider:     providerFn,
+		Thread:       messages,
+		DiffHunk:     cfg.Comment.DiffHunk,
+		Instructions: cfg.Instructions,
+	})
+	if err != nil {
+		return fmt.Errorf("generating reply: %w", err)
+	}
+
+	replyTo := cfg.Comment.InReplyToID
+	if replyTo == 0 {
+		replyTo = cfg.Comment.CommentID
+	}
+
+	if err := gh.ReplyToComment(ctx, cfg.Owner, cfg.Repo, cfg.PRNumber, replyTo, replyText); err != nil {
+		return fmt.Errorf("posting reply: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "reply posted\n")
 	return nil
 }
