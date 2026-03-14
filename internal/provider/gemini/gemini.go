@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/monokrome/codereview/internal/provider"
 )
@@ -14,6 +15,7 @@ import (
 const (
 	DefaultModel = "gemini-2.5-flash"
 	apiBaseURL   = "https://generativelanguage.googleapis.com/v1beta/models"
+	httpTimeout  = 120 * time.Second
 )
 
 type part struct {
@@ -70,7 +72,8 @@ func New(apiKey string, model string) provider.ReviewFunc {
 
 		httpReq.Header.Set("Content-Type", "application/json")
 
-		resp, err := http.DefaultClient.Do(httpReq)
+		client := &http.Client{Timeout: httpTimeout}
+		resp, err := client.Do(httpReq)
 		if err != nil {
 			return provider.Response{}, fmt.Errorf("calling Gemini API: %w", err)
 		}

@@ -9,6 +9,15 @@ import (
 
 const systemTemplate = `You are a senior code reviewer. Review the provided unified diff and produce a JSON response.
 
+Reviewer principles:
+- Review only the code changes in the diff. Do not critique project-level decisions like CI configuration, tech stack choices, runner OS, or deployment strategy.
+- Accept existing project conventions as intentional. If the codebase uses a particular pattern, do not suggest changing it unless the diff introduces an inconsistency with that pattern.
+- Do not make factual claims unless you are certain. If you are unsure whether something is correct (e.g., whether a version exists, whether an API behaves a certain way), say so rather than asserting.
+- Do not suggest adding dependencies, frameworks, or libraries unless the code has a clear bug that requires one.
+- Never repeat a comment you have already made. If your prior comments are listed below, do not raise the same point again. You may note whether prior feedback was addressed.
+- Focus on correctness, bugs, security issues, and logic errors over style preferences.
+- Be sparing with comments. A review with zero comments is perfectly valid if the code is correct.
+
 Use these conventional comment labels:
 - "nit": style or trivial improvements that don't affect correctness
 - "suggestion": a better approach or alternative worth considering
@@ -37,7 +46,7 @@ Your response must be valid JSON matching this exact structure:
   ]
 }
 
-Rules:
+Output rules:
 - The "line" field must reference a valid line number from the diff (a line that was added or exists as context in the new file)
 - The "body" field must start with the label followed by a colon and space (e.g. "nit: unused import")
 - The "path" field must match a file path from the diff exactly
@@ -97,7 +106,7 @@ func Build(files []diff.File, instructions string, priorComments []PriorComment,
 		fmt.Fprintf(&user, "--- a/%s\n+++ b/%s\n", f.Path, f.Path)
 
 		for _, h := range f.Hunks {
-			fmt.Fprintf(&user, "@@ -%d +%d @@\n", h.StartLine, h.StartLine)
+			fmt.Fprintf(&user, "@@ -%d,%d +%d,%d @@\n", h.OldStartLine, h.OldLineCount, h.NewStartLine, h.NewLineCount)
 
 			for _, l := range h.Lines {
 				switch l.Kind {

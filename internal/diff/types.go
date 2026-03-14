@@ -15,8 +15,11 @@ type Line struct {
 }
 
 type Hunk struct {
-	StartLine int
-	Lines     []Line
+	OldStartLine int
+	OldLineCount int
+	NewStartLine int
+	NewLineCount int
+	Lines        []Line
 }
 
 type File struct {

@@ -44,7 +44,7 @@ func Parse(diffText string) ([]File, error) {
 			return nil, fmt.Errorf("parsing hunk header %q: %w", line, err)
 		}
 
-		lineNum := hunk.StartLine
+		lineNum := hunk.NewStartLine
 		i++
 
 		for i < len(lines) && !strings.HasPrefix(lines[i], diffGitPrefix) && !strings.HasPrefix(lines[i], hunkPrefix) {
@@ -109,29 +109,57 @@ func resolvePathFromHeaders(lines []string, start int, fallback string) string {
 	return fallback
 }
 
+// parseHunkHeader parses "@@ -old,count +new,count @@" into a Hunk.
 func parseHunkHeader(line string) (Hunk, error) {
-	atIdx := strings.Index(line, "+")
-	if atIdx < 0 {
-		return Hunk{}, fmt.Errorf("no + range in hunk header")
+	// Find the range portion between the @@ markers
+	// Format: @@ -old_start[,old_count] +new_start[,new_count] @@
+	trimmed := strings.TrimPrefix(line, "@@ ")
+	if end := strings.Index(trimmed, " @@"); end >= 0 {
+		trimmed = trimmed[:end]
 	}
 
-	rest := line[atIdx+1:]
-	endIdx := strings.Index(rest, " ")
-	if endIdx < 0 {
-		endIdx = strings.Index(rest, hunkPrefix)
-	}
-	if endIdx < 0 {
-		endIdx = len(rest)
+	parts := strings.SplitN(trimmed, " ", 2)
+	if len(parts) < 2 {
+		return Hunk{}, fmt.Errorf("invalid hunk header: %q", line)
 	}
 
-	rangeStr := rest[:endIdx]
-	parts := strings.SplitN(rangeStr, ",", 2)
-	startLine, err := strconv.Atoi(parts[0])
+	oldRange := strings.TrimPrefix(parts[0], "-")
+	newRange := strings.TrimPrefix(parts[1], "+")
+
+	oldStart, oldCount, err := parseRange(oldRange)
 	if err != nil {
-		return Hunk{}, fmt.Errorf("parsing start line %q: %w", parts[0], err)
+		return Hunk{}, fmt.Errorf("parsing old range %q: %w", oldRange, err)
 	}
 
-	return Hunk{StartLine: startLine}, nil
+	newStart, newCount, err := parseRange(newRange)
+	if err != nil {
+		return Hunk{}, fmt.Errorf("parsing new range %q: %w", newRange, err)
+	}
+
+	return Hunk{
+		OldStartLine: oldStart,
+		OldLineCount: oldCount,
+		NewStartLine: newStart,
+		NewLineCount: newCount,
+	}, nil
+}
+
+func parseRange(s string) (int, int, error) {
+	parts := strings.SplitN(s, ",", 2)
+	start, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parsing start: %w", err)
+	}
+
+	count := 1
+	if len(parts) == 2 {
+		count, err = strconv.Atoi(parts[1])
+		if err != nil {
+			return 0, 0, fmt.Errorf("parsing count: %w", err)
+		}
+	}
+
+	return start, count, nil
 }
 
 func trimLeadingSpace(s string) string {

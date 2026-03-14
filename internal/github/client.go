@@ -7,9 +7,12 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/monokrome/codereview/internal/review"
 )
+
+const httpTimeout = 30 * time.Second
 
 const apiBase = "https://api.github.com"
 
@@ -21,7 +24,7 @@ type Client struct {
 func New(token string) *Client {
 	return &Client{
 		token:      token,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: httpTimeout},
 	}
 }
 
