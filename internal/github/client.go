@@ -329,3 +329,164 @@ func (c *Client) ReplyToComment(ctx context.Context, owner, repo string, prNumbe
 
 	return nil
 }
+
+const graphqlEndpoint = "https://api.github.com/graphql"
+
+type graphqlRequest struct {
+	Query     string         `json:"query"`
+	Variables map[string]any `json:"variables"`
+}
+
+type graphqlResponse struct {
+	Data   json.RawMessage `json:"data"`
+	Errors []struct {
+		Message string `json:"message"`
+	} `json:"errors"`
+}
+
+func (c *Client) ResolveThread(ctx context.Context, owner, repo string, prNumber int, rootCommentID int64, botLogin string) error {
+	threadID, isBotThread, err := c.findThreadByComment(ctx, owner, repo, prNumber, rootCommentID, botLogin)
+	if err != nil {
+		return fmt.Errorf("finding thread: %w", err)
+	}
+
+	if !isBotThread {
+		return nil
+	}
+
+	if threadID == "" {
+		return fmt.Errorf("thread not found for comment %d", rootCommentID)
+	}
+
+	mutation := `mutation($threadId: ID!) {
+		resolveReviewThread(input: { threadId: $threadId }) {
+			thread { id isResolved }
+		}
+	}`
+
+	return c.graphql(ctx, mutation, map[string]any{"threadId": threadID})
+}
+
+func (c *Client) findThreadByComment(ctx context.Context, owner, repo string, prNumber int, commentID int64, botLogin string) (string, bool, error) {
+	query := `query($owner: String!, $repo: String!, $prNumber: Int!, $cursor: String) {
+		repository(owner: $owner, name: $repo) {
+			pullRequest(number: $prNumber) {
+				reviewThreads(first: 100, after: $cursor) {
+					pageInfo { hasNextPage endCursor }
+					nodes {
+						id
+						comments(first: 1) {
+							nodes { databaseId author { login } }
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	vars := map[string]any{
+		"owner":    owner,
+		"repo":     repo,
+		"prNumber": prNumber,
+		"cursor":   nil,
+	}
+
+	for {
+		body, err := c.graphqlRaw(ctx, query, vars)
+		if err != nil {
+			return "", false, err
+		}
+
+		var result struct {
+			Repository struct {
+				PullRequest struct {
+					ReviewThreads struct {
+						PageInfo struct {
+							HasNextPage bool   `json:"hasNextPage"`
+							EndCursor   string `json:"endCursor"`
+						} `json:"pageInfo"`
+						Nodes []struct {
+							ID       string `json:"id"`
+							Comments struct {
+								Nodes []struct {
+									DatabaseID int64 `json:"databaseId"`
+									Author     struct {
+										Login string `json:"login"`
+									} `json:"author"`
+								} `json:"nodes"`
+							} `json:"comments"`
+						} `json:"nodes"`
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		}
+
+		if err := json.Unmarshal(body, &result); err != nil {
+			return "", false, fmt.Errorf("parsing response: %w", err)
+		}
+
+		threads := result.Repository.PullRequest.ReviewThreads
+		for _, thread := range threads.Nodes {
+			if len(thread.Comments.Nodes) == 0 {
+				continue
+			}
+
+			firstComment := thread.Comments.Nodes[0]
+			if firstComment.DatabaseID == commentID {
+				isBotThread := firstComment.Author.Login == botLogin
+				return thread.ID, isBotThread, nil
+			}
+		}
+
+		if !threads.PageInfo.HasNextPage {
+			break
+		}
+		vars["cursor"] = threads.PageInfo.EndCursor
+	}
+
+	return "", false, nil
+}
+
+func (c *Client) graphql(ctx context.Context, query string, vars map[string]any) error {
+	_, err := c.graphqlRaw(ctx, query, vars)
+	return err
+}
+
+func (c *Client) graphqlRaw(ctx context.Context, query string, vars map[string]any) (json.RawMessage, error) {
+	payload := graphqlRequest{Query: query, Variables: vars}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, graphqlEndpoint, strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	var gqlResp graphqlResponse
+	if err := json.Unmarshal(respBody, &gqlResp); err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+
+	if len(gqlResp.Errors) > 0 {
+		return nil, fmt.Errorf("graphql error: %s", gqlResp.Errors[0].Message)
+	}
+
+	return gqlResp.Data, nil
+}

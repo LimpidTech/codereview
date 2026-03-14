@@ -53,7 +53,16 @@ Rules:
 - If the developer's response resolves your concern, acknowledge it
 - If you still have concerns, explain why clearly
 - Be collaborative, not adversarial
-- Output plain text only, no JSON, no markdown fences`
+
+Your response must be valid JSON matching this exact structure:
+{
+  "reply": "your reply text here",
+  "resolved": true
+}
+
+- Set "resolved" to true if the developer's response adequately addresses your original concern
+- Set "resolved" to false if the concern is not yet addressed or you have follow-up questions
+- Output ONLY the JSON object, no markdown fences, no extra text`
 
 type PriorComment struct {
 	Path string

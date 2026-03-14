@@ -53,7 +53,12 @@ type ReplyConfig struct {
 	Instructions string
 }
 
-func RunReply(ctx context.Context, cfg ReplyConfig) (string, error) {
+type ReplyResult struct {
+	Reply    string `json:"reply"`
+	Resolved bool   `json:"resolved"`
+}
+
+func RunReply(ctx context.Context, cfg ReplyConfig) (ReplyResult, error) {
 	system, user := prompt.BuildReply(cfg.Thread, cfg.DiffHunk, cfg.Instructions)
 
 	resp, err := cfg.Provider(ctx, provider.Request{
@@ -61,10 +66,17 @@ func RunReply(ctx context.Context, cfg ReplyConfig) (string, error) {
 		UserPrompt:   user,
 	})
 	if err != nil {
-		return "", fmt.Errorf("calling provider: %w", err)
+		return ReplyResult{}, fmt.Errorf("calling provider: %w", err)
 	}
 
-	return strings.TrimSpace(stripMarkdownFences(resp.Content)), nil
+	cleaned := strings.TrimSpace(stripMarkdownFences(resp.Content))
+
+	var result ReplyResult
+	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {
+		return ReplyResult{Reply: cleaned}, nil
+	}
+
+	return result, nil
 }
 
 func ParseResponse(raw string) (Result, error) {

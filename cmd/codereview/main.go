@@ -118,7 +118,7 @@ func runReply(ctx context.Context, cfg action.Config, providerFn provider.Review
 		})
 	}
 
-	replyText, err := review.RunReply(ctx, review.ReplyConfig{
+	result, err := review.RunReply(ctx, review.ReplyConfig{
 		Provider:     providerFn,
 		Thread:       messages,
 		DiffHunk:     cfg.Comment.DiffHunk,
@@ -133,8 +133,26 @@ func runReply(ctx context.Context, cfg action.Config, providerFn provider.Review
 		replyTo = cfg.Comment.CommentID
 	}
 
-	if err := gh.ReplyToComment(ctx, cfg.Owner, cfg.Repo, cfg.PRNumber, replyTo, replyText); err != nil {
+	if err := gh.ReplyToComment(ctx, cfg.Owner, cfg.Repo, cfg.PRNumber, replyTo, result.Reply); err != nil {
 		return fmt.Errorf("posting reply: %w", err)
+	}
+
+	if result.Resolved {
+		botLogin := cfg.BotLogin
+		if botLogin == "" {
+			botLogin = defaultBotLogin
+		}
+
+		rootID := cfg.Comment.InReplyToID
+		if rootID == 0 {
+			rootID = cfg.Comment.CommentID
+		}
+
+		if err := gh.ResolveThread(ctx, cfg.Owner, cfg.Repo, cfg.PRNumber, rootID, botLogin); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not resolve thread: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "thread resolved\n")
+		}
 	}
 
 	fmt.Fprintf(os.Stderr, "reply posted\n")
