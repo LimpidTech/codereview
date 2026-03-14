@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/monokrome/codereview/internal/diff"
@@ -38,9 +39,7 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 		return Result{}, fmt.Errorf("parsing response: %w", err)
 	}
 
-	if err := validateResult(result, files); err != nil {
-		return Result{}, fmt.Errorf("validating result: %w", err)
-	}
+	result.Comments = filterValidComments(result.Comments, files)
 
 	return result, nil
 }
@@ -77,7 +76,7 @@ func stripMarkdownFences(s string) string {
 	return strings.TrimSpace(s)
 }
 
-func validateResult(result Result, files []diff.File) error {
+func filterValidComments(comments []Comment, files []diff.File) []Comment {
 	validPaths := make(map[string]map[int]bool)
 	for _, f := range files {
 		lines := make(map[int]bool)
@@ -91,24 +90,31 @@ func validateResult(result Result, files []diff.File) error {
 		validPaths[f.Path] = lines
 	}
 
-	for i, c := range result.Comments {
+	var valid []Comment
+	for _, c := range comments {
 		if !IsValidLabel(c.Label) {
-			return fmt.Errorf("comment %d: invalid label %q", i, c.Label)
+			fmt.Fprintf(os.Stderr, "warning: dropping comment with invalid label %q\n", c.Label)
+			continue
 		}
 
 		if c.Line <= 0 {
-			return fmt.Errorf("comment %d: line number must be positive, got %d", i, c.Line)
+			fmt.Fprintf(os.Stderr, "warning: dropping comment with non-positive line %d\n", c.Line)
+			continue
 		}
 
 		fileLines, ok := validPaths[c.Path]
 		if !ok {
-			return fmt.Errorf("comment %d: path %q not found in diff", i, c.Path)
+			fmt.Fprintf(os.Stderr, "warning: dropping comment for path %q not in diff\n", c.Path)
+			continue
 		}
 
 		if !fileLines[c.Line] {
-			return fmt.Errorf("comment %d: line %d not found in diff for path %q", i, c.Line, c.Path)
+			fmt.Fprintf(os.Stderr, "warning: dropping comment for line %d not in diff for %q\n", c.Line, c.Path)
+			continue
 		}
+
+		valid = append(valid, c)
 	}
 
-	return nil
+	return valid
 }
